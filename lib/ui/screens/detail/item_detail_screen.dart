@@ -9447,10 +9447,17 @@ class DetailActionButtonsState extends State<DetailActionButtons> {
         final mediaType = queuedItem.rawData['MediaType'] as String?;
         return queuedItem.type == 'Audio' || mediaType == 'Audio';
       });
-      final forceTranscode =
-          !isAudio &&
-          context.mounted &&
-          await _shouldForceTranscodeForDolbyVision(context, [shuffled.first]);
+      final bool forceTranscode;
+      try {
+        forceTranscode =
+            !isAudio &&
+            context.mounted &&
+            await _shouldForceTranscodeForDolbyVision(context, [
+              shuffled.first,
+            ]);
+      } on PlaybackStartupRecoveryAbortedException {
+        return null;
+      }
       if (launchGone()) return null;
       return (
         queue: shuffled,
@@ -10184,13 +10191,19 @@ Future<bool> _runWithDolbyVisionStartupFallbackPrompt(
   }
 }
 
-({bool needsFallback, bool hasUnsupportedProfile}) _analyzeDolbyVisionQueue(
+({
+  bool needsFallback,
+  bool hasUnsupportedProfile,
+  bool needsDolbyVisionDisplay,
+})
+_analyzeDolbyVisionQueue(
   List<AggregatedItem> queue, {
   String? mediaSourceId,
   bool allowDolbyVisionProfile7ElDirectPlay = false,
 }) {
   var needsFallback = false;
   var hasUnsupportedProfile = false;
+  var needsDolbyVisionDisplay = false;
 
   for (final item in queue) {
     final selectedSource = selectedMediaSourceForItem(item, mediaSourceId);
@@ -10208,8 +10221,9 @@ Future<bool> _runWithDolbyVisionStartupFallbackPrompt(
           )) {
         hasUnsupportedProfile = true;
       }
-      if (needsFallback && hasUnsupportedProfile) {
-        return (needsFallback: true, hasUnsupportedProfile: true);
+      if (!needsDolbyVisionDisplay &&
+          HdrStreamCapability.needsDolbyVisionDisplay(stream)) {
+        needsDolbyVisionDisplay = true;
       }
     }
   }
@@ -10217,7 +10231,37 @@ Future<bool> _runWithDolbyVisionStartupFallbackPrompt(
   return (
     needsFallback: needsFallback,
     hasUnsupportedProfile: hasUnsupportedProfile,
+    needsDolbyVisionDisplay: needsDolbyVisionDisplay,
   );
+}
+
+/// Warns that a stream's colors will come out wrong on this device. There is
+/// no HDR10 layer to offer and a transcode bakes in the same colors, so the
+/// only choices are to back out or to play it as it is. Returns whether to
+/// play.
+Future<bool> _showDolbyVisionCannotDisplayDialog(BuildContext context) async {
+  final l10n = AppLocalizations.of(context);
+  final playAnyway = await showFocusRestoringDialog<bool>(
+    context: context,
+    builder: (dialogContext) {
+      return AlertDialog.adaptive(
+        title: Text(l10n.dolbyVisionCannotDisplayTitle),
+        content: Text(l10n.dolbyVisionCannotDisplayMessage),
+        actions: [
+          FocusableButton(
+            autofocus: true,
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: Text(l10n.cancel),
+          ),
+          FocusableButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: Text(l10n.playAnyway),
+          ),
+        ],
+      );
+    },
+  );
+  return playAnyway == true;
 }
 
 Future<_DolbyVisionPlayDecision?> _showDolbyVisionFallbackDecisionDialog(
@@ -10335,6 +10379,14 @@ Future<bool> shouldForceTranscodeForDolbyVisionQueue(
 
   if (dvAnalysis.hasUnsupportedProfile) {
     return true;
+  }
+
+  if (dvAnalysis.needsDolbyVisionDisplay) {
+    if (!context.mounted) return false;
+    if (!await _showDolbyVisionCannotDisplayDialog(context)) {
+      throw PlaybackStartupRecoveryAbortedException();
+    }
+    return false;
   }
 
   if (PlatformDetection.supportsDolbyVision) {

@@ -91,6 +91,14 @@ String? dolbyVisionTranscodeReason(
     return 'dolbyVisionProfileNotDirectPlayable';
   }
 
+  // No preference applies here: there is no HDR10 layer to fall back to, and
+  // a transcode only bakes the same wrong colors in at the server's expense.
+  if (resolution.mediaStreams.any(
+    HdrStreamCapability.needsDolbyVisionDisplay,
+  )) {
+    return null;
+  }
+
   if (!_needsDolbyVisionFallback(resolution)) {
     return null;
   }

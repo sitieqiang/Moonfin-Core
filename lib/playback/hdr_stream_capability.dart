@@ -1,4 +1,5 @@
 import '../util/platform_detection.dart';
+import 'known_defects.dart';
 
 enum DolbyVisionRequiredProfile {
   profile5,
@@ -106,6 +107,21 @@ class HdrStreamCapability {
     }
 
     return DolbyVisionRequiredProfile.any;
+  }
+
+  /// Whether [stream] only renders right through a Dolby Vision display here,
+  /// so with none attached its colors come out wrong. That is the case for a
+  /// stream with no HDR10 base layer (profile 5, or a Dolby Vision stream
+  /// whose profile the server left open) on a device whose decoder never maps
+  /// Dolby Vision itself.
+  static bool needsDolbyVisionDisplay(Map<String, dynamic> stream) {
+    if (PlatformDetection.supportsDolbyVision) return false;
+    if (!KnownDefects.dolbyVisionDecoderNeedsDolbyVisionDisplay) return false;
+    if (!needsDolbyVisionFallback(stream)) return false;
+
+    final requiredProfile = requiredDolbyVisionProfile(stream);
+    return requiredProfile == DolbyVisionRequiredProfile.profile5 ||
+        requiredProfile == DolbyVisionRequiredProfile.any;
   }
 
   static bool streamNeedsDolbyVisionProfileTranscode(

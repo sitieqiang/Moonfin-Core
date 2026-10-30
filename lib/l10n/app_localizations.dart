@@ -16786,6 +16786,24 @@ abstract class AppLocalizations {
   /// **'Play HDR10 fallback'**
   String get playHdr10Fallback;
 
+  /// No description provided for @dolbyVisionCannotDisplayTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Can't show this Dolby Vision video correctly'**
+  String get dolbyVisionCannotDisplayTitle;
+
+  /// No description provided for @dolbyVisionCannotDisplayMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'This video is Dolby Vision profile 5, which has no HDR10 layer. This device only shows it correctly on a Dolby Vision display, so its colors will look wrong on this TV (green and purple). Server transcoding may not fix this.'**
+  String get dolbyVisionCannotDisplayMessage;
+
+  /// No description provided for @playAnyway.
+  ///
+  /// In en, this message translates to:
+  /// **'Play anyway'**
+  String get playAnyway;
+
   /// No description provided for @requestTranscode.
   ///
   /// In en, this message translates to:

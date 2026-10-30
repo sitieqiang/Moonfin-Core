@@ -150,6 +150,13 @@ Future<bool> launchPlayerWhilePreparing(
   } on _PlaybackLaunchCanceledException {
     manager.cancelPlaybackPreparation();
     return false;
+  } on PlaybackStartupRecoveryAbortedException {
+    // The viewer backed out of a prompt on the way to playItems.
+    if (context.mounted) {
+      _closePlayerRoute(context, session);
+    }
+    manager.cancelPlaybackPreparation();
+    return false;
   } catch (_) {
     if (context.mounted) {
       _closePlayerRoute(context, session);

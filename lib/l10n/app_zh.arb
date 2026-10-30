@@ -6250,6 +6250,9 @@
     "dolbyVisionNotSupportedMessage": "此设备无法直接解码 Dolby Vision 内容。请改用 HDR10 兼容播放，或请求服务器转码。",
     "rememberMyChoice": "记住我的选择",
     "playHdr10Fallback": "以 HDR10 兼容模式播放",
+    "dolbyVisionCannotDisplayTitle": "无法正确显示此 Dolby Vision 视频",
+    "dolbyVisionCannotDisplayMessage": "此视频是 Dolby Vision Profile 5，没有 HDR10 层。此设备只有连接 Dolby Vision 显示器才能正确显示，在这台电视上颜色会偏绿、偏紫，服务器转码也可能无法解决。",
+    "playAnyway": "仍要播放",
     "requestTranscode": "请求转码",
     "integrationRowsDiscoveredCount": "{count, plural, one {已发现 # 个栏目} other {已发现 # 个栏目}}",
     "@integrationRowsDiscoveredCount": {

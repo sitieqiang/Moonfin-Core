@@ -2947,7 +2947,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
   void _focusTvPrimaryButton() {
     if (!PlatformDetection.isTV) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || !_controlsVisible) return;
+      if (!mounted || !_controlsVisible || _routeCovered) return;
       _primaryPlayFocus.requestFocus();
     });
   }
@@ -2965,7 +2965,10 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
 
   void _focusTvSeekbar({int attempt = 0}) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || !_controlsVisible || _isOsdLocked) return;
+      // A dialog over the player keeps its focus, see _restoreOverlayFocus.
+      if (!mounted || !_controlsVisible || _isOsdLocked || _routeCovered) {
+        return;
+      }
       _tvSeekbarFocus.requestFocus();
 
       if (!_tvSeekbarFocus.hasFocus && attempt < 8) {
@@ -2980,7 +2983,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
   void _focusTvSkipSegment({int attempt = 0}) {
     if (!PlatformDetection.isTV || _skipSegment == null) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || _skipSegment == null) return;
+      if (!mounted || _skipSegment == null || _routeCovered) return;
       _tvSkipSegmentFocus.requestFocus();
 
       if (!_tvSkipSegmentFocus.hasFocus && attempt < 8) {

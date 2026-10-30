@@ -70,6 +70,10 @@ String? checkClientDolbyVisionTranscodeReason(
     }
   }
 
+  if (streams.any(HdrStreamCapability.needsDolbyVisionDisplay)) {
+    return null;
+  }
+
   final needsFallback =
       streams.any(HdrStreamCapability.needsDolbyVisionFallback);
   if (!needsFallback) {

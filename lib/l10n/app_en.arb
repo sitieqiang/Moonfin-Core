@@ -9485,6 +9485,9 @@
   "dolbyVisionNotSupportedMessage": "This device cannot decode Dolby Vision content directly. Use HDR10 fallback or request server transcoding.",
   "rememberMyChoice": "Remember my choice",
   "playHdr10Fallback": "Play HDR10 fallback",
+  "dolbyVisionCannotDisplayTitle": "Can't show this Dolby Vision video correctly",
+  "dolbyVisionCannotDisplayMessage": "This video is Dolby Vision profile 5, which has no HDR10 layer. This device only shows it correctly on a Dolby Vision display, so its colors will look wrong on this TV (green and purple). Server transcoding may not fix this.",
+  "playAnyway": "Play anyway",
   "requestTranscode": "Request transcode",
   "integrationRowsDiscoveredCount": "{count, plural, one {# row discovered} other {# rows discovered}}",
   "@integrationRowsDiscoveredCount": {

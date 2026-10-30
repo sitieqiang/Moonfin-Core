@@ -9570,6 +9570,17 @@ class AppLocalizationsMl extends AppLocalizations {
   String get playHdr10Fallback => 'HDR10 ഫാൾബാക്ക് പ്ലേ ചെയ്യുക';
 
   @override
+  String get dolbyVisionCannotDisplayTitle =>
+      'Can\'t show this Dolby Vision video correctly';
+
+  @override
+  String get dolbyVisionCannotDisplayMessage =>
+      'This video is Dolby Vision profile 5, which has no HDR10 layer. This device only shows it correctly on a Dolby Vision display, so its colors will look wrong on this TV (green and purple). Server transcoding may not fix this.';
+
+  @override
+  String get playAnyway => 'Play anyway';
+
+  @override
   String get requestTranscode => 'ട്രാൻസ്കോഡ് അഭ്യർത്ഥിക്കുക';
 
   @override

@@ -10,9 +10,11 @@ import 'package:jellyfin_preference/jellyfin_preference.dart';
 import 'package:moonfin/data/database/offline_database.dart';
 import 'package:moonfin/data/models/aggregated_item.dart';
 import 'package:moonfin/data/repositories/offline_repository.dart';
+import 'package:moonfin/l10n/app_localizations.dart';
 import 'package:moonfin/preference/user_preferences.dart';
 import 'package:moonfin/ui/screens/detail/item_detail_screen.dart';
 import 'package:moonfin/util/platform_detection.dart';
+import 'package:playback_core/playback_core.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Regression tests for the completed-download early return in the Android TV
@@ -157,6 +159,81 @@ void main() {
       debugDefaultTargetPlatformOverride = null;
     },
   );
+
+  group('a SHIELD on an HDR10 display with a profile 5 file', () {
+    void setUpShield() {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      PlatformDetection.setTvMode(true);
+      PlatformDetection.setDisplayHdrTypes(const <String>['HDR10']);
+      PlatformDetection.setMediaCodecCapabilities(const <String, dynamic>{
+        'supportsDvP5': true,
+        'supportsDvP8': true,
+        'supportsHevcHdr10': true,
+        'deviceModel': 'SHIELD Android TV',
+      });
+    }
+
+    void tearDownShield() {
+      PlatformDetection.setMediaCodecCapabilities(null);
+      debugDefaultTargetPlatformOverride = null;
+    }
+
+    Future<BuildContext> mountLocalized(WidgetTester tester) async {
+      await tester.pumpWidget(
+        const MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(),
+        ),
+      );
+      return tester.element(find.byType(Scaffold));
+    }
+
+    testWidgets('playing anyway direct plays instead of transcoding', (
+      tester,
+    ) async {
+      setUpShield();
+      final context = await mountLocalized(tester);
+      final l10n = AppLocalizations.of(context);
+
+      final result = shouldForceTranscodeForDolbyVisionQueue(context, [
+        dvItem(),
+      ]);
+      await tester.pumpAndSettle();
+
+      expect(find.text(l10n.dolbyVisionCannotDisplayTitle), findsOneWidget);
+      // The HDR10 choice would only play the same green and purple picture.
+      expect(find.text(l10n.playHdr10Fallback), findsNothing);
+      expect(find.text(l10n.requestTranscode), findsNothing);
+
+      await tester.tap(find.text(l10n.playAnyway));
+      await tester.pumpAndSettle();
+
+      expect(await result, isFalse);
+      tearDownShield();
+    });
+
+    testWidgets('cancelling aborts the start', (tester) async {
+      setUpShield();
+      final context = await mountLocalized(tester);
+      final l10n = AppLocalizations.of(context);
+
+      final result = shouldForceTranscodeForDolbyVisionQueue(context, [
+        dvItem(),
+      ]);
+      final expectation = expectLater(
+        result,
+        throwsA(isA<PlaybackStartupRecoveryAbortedException>()),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text(l10n.cancel));
+      await tester.pumpAndSettle();
+
+      await expectation;
+      tearDownShield();
+    });
+  });
 
   testWidgets('a non-TV platform never forces the transcode', (tester) async {
     debugDefaultTargetPlatformOverride = TargetPlatform.android;

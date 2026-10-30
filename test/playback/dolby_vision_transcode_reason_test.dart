@@ -208,6 +208,95 @@ void main() {
     });
   });
 
+  group('a SHIELD on an HDR10 display', () {
+    // The SHIELD decodes profile 5 but only maps it on a Dolby Vision panel,
+    // so on this HDR10 Samsung it rendered green and purple.
+    setUp(() async {
+      PlatformDetection.setDisplayHdrTypes(const <String>['HDR10']);
+      PlatformDetection.setMediaCodecCapabilities(const <String, dynamic>{
+        'supportsDvP5': true,
+        'supportsDvP8': true,
+        'supportsHevcHdr10': true,
+        'deviceModel': 'SHIELD Android TV',
+      });
+      // The fallback choice it used to play with.
+      await prefs.set(
+        UserPreferences.dolbyVisionFallbackBehavior,
+        DolbyVisionFallbackBehavior.hdr10Fallback,
+      );
+    });
+
+    test('a profile 5 file does not transcode, which bakes the colors in', () {
+      expect(
+        dolbyVisionTranscodeReason(_embyDolbyVision('DoviProfile50'), prefs),
+        isNull,
+      );
+    });
+
+    test('a pinned transcode preference does not transcode it either', () async {
+      await prefs.set(
+        UserPreferences.dolbyVisionFallbackBehavior,
+        DolbyVisionFallbackBehavior.transcode,
+      );
+      expect(
+        dolbyVisionTranscodeReason(_embyDolbyVision('DoviProfile50'), prefs),
+        isNull,
+      );
+    });
+
+    test('a Jellyfin profile 5 file does not transcode either', () {
+      final profile5 = StreamResolutionResult(
+        streamUrl: 'http://server/stream.mkv',
+        mediaSourceId: 'source-1',
+        playMethod: StreamPlayMethod.directPlay,
+        container: 'mkv',
+        videoRangeType: 'DOVI',
+        mediaStreams: const [
+          {'Type': 'Video', 'Codec': 'hevc', 'VideoRangeType': 'DOVI'},
+        ],
+      );
+      expect(
+        dolbyVisionTranscodeReason(profile5, prefs),
+        isNull,
+      );
+    });
+
+    test('an untyped file does not transcode, since it may be profile 5', () {
+      expect(
+        dolbyVisionTranscodeReason(_embyDolbyVision('None'), prefs),
+        isNull,
+      );
+    });
+
+    test('a profile 8.1 file still direct plays as HDR10', () {
+      expect(
+        dolbyVisionTranscodeReason(_embyDolbyVision('DoviProfile81'), prefs),
+        isNull,
+      );
+    });
+
+    test('a Dolby Vision display lets profile 5 direct play', () {
+      PlatformDetection.setDisplayHdrTypes(const <String>['DOLBY_VISION']);
+      expect(
+        dolbyVisionTranscodeReason(_embyDolbyVision('DoviProfile50'), prefs),
+        isNull,
+      );
+    });
+
+    test('another device keeps the fallback choice', () {
+      PlatformDetection.setMediaCodecCapabilities(const <String, dynamic>{
+        'supportsDvP5': true,
+        'supportsDvP8': true,
+        'supportsHevcHdr10': true,
+        'deviceModel': 'AFTKA',
+      });
+      expect(
+        dolbyVisionTranscodeReason(_embyDolbyVision('DoviProfile50'), prefs),
+        isNull,
+      );
+    });
+  });
+
   test('the ladder is inert away from Android TV', () {
     PlatformDetection.setTvMode(false);
     PlatformDetection.setDisplayHdrTypes(const <String>[]);

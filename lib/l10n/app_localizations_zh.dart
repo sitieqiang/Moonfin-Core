@@ -9172,6 +9172,16 @@ class AppLocalizationsZh extends AppLocalizations {
   String get playHdr10Fallback => '以 HDR10 兼容模式播放';
 
   @override
+  String get dolbyVisionCannotDisplayTitle => '无法正确显示此 Dolby Vision 视频';
+
+  @override
+  String get dolbyVisionCannotDisplayMessage =>
+      '此视频是 Dolby Vision Profile 5，没有 HDR10 层。此设备只有连接 Dolby Vision 显示器才能正确显示，在这台电视上颜色会偏绿、偏紫，服务器转码也可能无法解决。';
+
+  @override
+  String get playAnyway => '仍要播放';
+
+  @override
   String get requestTranscode => '请求转码';
 
   @override

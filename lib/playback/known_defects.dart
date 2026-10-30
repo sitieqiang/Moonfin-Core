@@ -17,6 +17,29 @@ class KnownDefects {
         'AFTKRT',
       };
 
+  // The SHIELD's Dolby Vision decoder only works TV-led: it hands the IPT
+  // picture and RPU to a Dolby Vision display and never maps them itself. On
+  // any other display a stream without an HDR10 base layer renders green and
+  // purple. Emby's transcoder bakes the same colors in, so transcoding doesn't
+  // rescue these streams either.
+  static const Set<String> modelsWithDolbyVisionDisplayOnlyDecoder = <String>{
+    'SHIELD ANDROID TV',
+  };
+
+  /// Whether this device's Dolby Vision decoder renders only through a Dolby
+  /// Vision display.
+  static bool get dolbyVisionDecoderNeedsDolbyVisionDisplay =>
+      modelHasDolbyVisionDisplayOnlyDecoder(PlatformDetection.deviceModel);
+
+  static bool modelHasDolbyVisionDisplayOnlyDecoder(String? model) {
+    if (model == null) {
+      return false;
+    }
+    return modelsWithDolbyVisionDisplayOnlyDecoder.contains(
+      model.trim().toUpperCase(),
+    );
+  }
+
   static bool get hevcDoviHdr10PlusBug =>
       PlatformDetection.knownHevcDoviHdr10PlusBug ||
       modelHasHevcDoviHdr10PlusBug(PlatformDetection.deviceModel);
