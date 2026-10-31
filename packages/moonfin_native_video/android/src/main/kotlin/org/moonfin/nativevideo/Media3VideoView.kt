@@ -23,6 +23,7 @@ import android.view.Gravity
 import android.view.Display
 import android.view.PixelCopy
 import android.view.Surface
+import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.view.TextureView
 import android.view.View
@@ -101,6 +102,9 @@ import io.github.peerless2012.ass.media.type.AssRenderType
 import java.io.File
 import java.nio.ByteBuffer
 import java.util.Locale
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.roundToInt
 import org.moonfin.nativevideo.iec.Iec61937AudioOutputProvider
 import org.moonfin.nativevideo.subtitle.DeclaredSubtitle
@@ -634,6 +638,7 @@ class Media3VideoView(
     val isHeadlessHost: Boolean = false,
 ) : PlatformView, MethodChannel.MethodCallHandler {
     companion object {
+        private const val P5_ATTACH_TIMEOUT_MS = 3_000L
         private const val TS_SEARCH_BYTES_LOW_RAM = TsExtractor.TS_PACKET_SIZE * 1800
         private const val TS_SEARCH_BYTES_DEFAULT = TsExtractor.DEFAULT_TIMESTAMP_SEARCH_BYTES
         private const val EXTERNAL_SUBTITLE_ID_BASE = 10000
@@ -738,6 +743,11 @@ class Media3VideoView(
     // on older Android too once it is lifted above Flutter's background on the legacy hybrid-
     // composition path (see newVideoView). Previously gated to API 30+.
     private val useSurfaceView = true
+    private var p5Renderer: DoviP5Renderer? = null
+    private var p5RendererActive = false
+    private var p5SurfaceCallback: SurfaceHolder.Callback? = null
+    private var p5SurfaceHolder: SurfaceHolder? = null
+    private var playerGeneration = 0
     private var videoView: View = newVideoView()
     private var lastSourceArguments: Map<*, *>? = null
     private var lastPlaybackPositionMs: Long = 0L
@@ -834,6 +844,7 @@ class Media3VideoView(
     private var preferFfmpegDecoder = Media3Bridge.preferFfmpegDecoderEnabled()
     @Volatile
     private var doviCompatMode = DoviCompatMode.fromWire(Media3Bridge.doviCompatMode())
+    private var doviP5Reshape = Media3Bridge.doviP5ReshapeEnabled()
     private var allowExternalAudioEffects = Media3Bridge.allowExternalAudioEffectsEnabled()
     private var frameRateSwitchingBehavior = Media3Bridge.frameRateSwitchingBehavior()
     private var passthroughMode = Media3Bridge.passthroughMode()
@@ -1253,6 +1264,10 @@ class Media3VideoView(
             videoWidthPx = videoSize.width
             videoHeightPx = videoSize.height
             videoPixelRatio = videoSize.pixelWidthHeightRatio
+            if (p5RendererActive && videoSize.width > 0 && videoSize.height > 0) {
+                (videoView as? SurfaceView)?.holder
+                    ?.setFixedSize(videoSize.width, videoSize.height)
+            }
             applyVideoLayout()
             layoutPaddingRowMask()
             resolveSelectedVideoFrameRate()?.let { frameRate ->
@@ -1588,6 +1603,7 @@ class Media3VideoView(
         restorePreferredDisplayMode()
         detectedFrameRate = null
         releaseAssOverlay()
+        releaseP5Renderer()
         player.removeListener(listener)
         player.removeAnalyticsListener(analyticsListener)
         audioPipeline.release()
@@ -1873,6 +1889,7 @@ class Media3VideoView(
     }
 
     private fun createPlayer(): ExoPlayer {
+        val generation = ++playerGeneration
         Media3LogRelay.install()
         audioAttributeState.reset()
         cancelPendingRetime()
@@ -1947,6 +1964,7 @@ class Media3VideoView(
                 mode = { doviCompatMode },
                 convertNal62 = DoviRpu::convertP7NalToP8,
                 onReport = ::onDoviCompatReport,
+                p5RpuSinkProvider = { provideP5RpuSink(generation) },
             ),
         ).apply {
             setSubtitleParserFactory(assParserFactory)
@@ -1980,6 +1998,125 @@ class Media3VideoView(
                 // The MediaSession attaches lazily in setSource() so muted
                 // previews never create one.
             }
+    }
+
+    /**
+     * Called by the extractor when it meets a profile 5 track. Moves this
+     * player's output onto a [DoviP5Renderer] and returns where the track's
+     * RPUs go, or null when this source plays the track as it is.
+     *
+     * Runs on the loading thread and blocks it until the renderer owns the
+     * surface, because the extractor holds the track's format back until this
+     * returns and the decoder is configured right after it. A renderer that
+     * can't start leaves the player on its plain surface.
+     */
+    private fun provideP5RpuSink(generation: Int): DoviP5RpuSink? {
+        if (!doviP5Reshape || currentIsPreview || !DoviRpu.isAvailable()) return null
+        val store = DoviP5RpuStore()
+        val attached = AtomicBoolean(false)
+        val settled = CountDownLatch(1)
+        mainHandler.post {
+            if (generation != playerGeneration || isPlayerReleased) {
+                settled.countDown()
+                return@post
+            }
+            attachP5Renderer(store) { success ->
+                attached.set(success)
+                settled.countDown()
+            }
+        }
+        val inTime = settled.await(P5_ATTACH_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+        if (inTime && attached.get()) return store::add
+        mainHandler.post {
+            if (generation == playerGeneration) fallBackFromP5Renderer()
+        }
+        return null
+    }
+
+    private fun attachP5Renderer(store: DoviP5RpuStore, onSettled: (Boolean) -> Unit) {
+        val view = videoView as? SurfaceView
+        if (view == null) {
+            onSettled(false)
+            return
+        }
+        val target = player
+        target.clearVideoSurfaceView(view)
+        p5RendererActive = true
+        // Before the decoder is up, since tunneling needs its surface directly.
+        applyTrackSelectorForCurrentSource()
+        if (sourceVideoWidthHint > 0 && sourceVideoHeightHint > 0) {
+            view.holder.setFixedSize(sourceVideoWidthHint, sourceVideoHeightHint)
+        }
+
+        fun start(surface: Surface) {
+            var renderer: DoviP5Renderer? = null
+            renderer = DoviP5Renderer(
+                window = surface,
+                rpus = store,
+                onInputSurface = { input ->
+                    mainHandler.post {
+                        val current = renderer ?: return@post
+                        if (p5Renderer !== current) return@post
+                        target.setVideoFrameMetadataListener(current)
+                        target.setVideoSurface(input)
+                        onSettled(true)
+                    }
+                },
+                onFailed = {
+                    mainHandler.post { onSettled(false) }
+                },
+            )
+            p5Renderer = renderer
+        }
+
+        val callback = object : SurfaceHolder.Callback {
+            override fun surfaceCreated(holder: SurfaceHolder) = start(holder.surface)
+
+            override fun surfaceChanged(
+                holder: SurfaceHolder,
+                format: Int,
+                width: Int,
+                height: Int,
+            ) = Unit
+
+            override fun surfaceDestroyed(holder: SurfaceHolder) {
+                stopP5Renderer(target)
+            }
+        }
+        p5SurfaceCallback = callback
+        p5SurfaceHolder = view.holder
+        view.holder.addCallback(callback)
+        if (view.holder.surface?.isValid == true) start(view.holder.surface)
+    }
+
+    private fun stopP5Renderer(target: ExoPlayer) {
+        val renderer = p5Renderer ?: return
+        p5Renderer = null
+        runCatching {
+            target.clearVideoFrameMetadataListener(renderer)
+            target.clearVideoSurface()
+        }
+        renderer.release()
+    }
+
+    /** Drops the renderer along with the player it was feeding from. */
+    private fun releaseP5Renderer() {
+        p5SurfaceCallback?.let { p5SurfaceHolder?.removeCallback(it) }
+        p5SurfaceCallback = null
+        p5SurfaceHolder = null
+        p5RendererActive = false
+        stopP5Renderer(player)
+    }
+
+    /** Puts the player back on its plain surface after a renderer that failed. */
+    private fun fallBackFromP5Renderer() {
+        if (!p5RendererActive) return
+        releaseP5Renderer()
+        (videoView as? SurfaceView)?.let { view ->
+            view.holder.setSizeFromLayout()
+            player.setVideoSurfaceView(view)
+        }
+        applyTrackSelectorForCurrentSource()
     }
 
     private fun registerAssFonts(assHandler: AssHandler) {
@@ -2064,6 +2201,7 @@ class Media3VideoView(
         restorePreferredDisplayMode()
         detectedFrameRate = null
         releaseAssOverlay()
+        releaseP5Renderer()
         player.removeListener(listener)
         player.removeAnalyticsListener(analyticsListener)
         player.clearVideoSurface()
@@ -2988,6 +3126,7 @@ class Media3VideoView(
             !isAudioContent &&
                 !hasExternalSubtitle &&
                 !sessionTunnelingDisabled &&
+                !p5RendererActive &&
                 // Tunneled TrueHD/MLP passthrough can be silent with no sink
                 // exception on some AVR chains. Tunneling is only a latency
                 // optimization, so drop it whenever a lossless track is active.
@@ -3092,6 +3231,9 @@ class Media3VideoView(
         // Applies at the next source load, when the extractors are recreated.
         (args["doviCompatMode"] as? String)?.let {
             doviCompatMode = DoviCompatMode.fromWire(it)
+        }
+        (args["doviP5Reshape"] as? Boolean)?.let {
+            doviP5Reshape = it
         }
 
         val nextTunnelingDisabled = args["tunnelingDisabled"] as? Boolean

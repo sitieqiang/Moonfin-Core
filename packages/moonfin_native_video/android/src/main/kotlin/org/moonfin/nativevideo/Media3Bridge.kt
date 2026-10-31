@@ -59,6 +59,7 @@ object Media3Bridge {
 
     @Volatile
     private var doviCompatMode = "off"
+    private var doviP5Reshape = false
 
     @Volatile
     private var allowExternalAudioEffects = true
@@ -263,6 +264,8 @@ object Media3Bridge {
 
     fun doviCompatMode(): String = doviCompatMode
 
+    fun doviP5ReshapeEnabled(): Boolean = doviP5Reshape
+
     fun allowExternalAudioEffectsEnabled(): Boolean = allowExternalAudioEffects
 
     fun frameRateSwitchingBehavior(): String = frameRateSwitchingBehavior
@@ -317,6 +320,9 @@ object Media3Bridge {
             }
             (args?.get("doviCompatMode") as? String)?.let {
                 doviCompatMode = it
+            }
+            (args?.get("doviP5Reshape") as? Boolean)?.let {
+                doviP5Reshape = it
             }
             (args?.get("allowExternalAudioEffects") as? Boolean)?.let {
                 allowExternalAudioEffects = it

@@ -55,6 +55,9 @@ data class DoviCompatReport(
     val detail: String?,
 )
 
+/** Takes a profile 5 RPU: its time, then the array, offset and length holding it. */
+typealias DoviP5RpuSink = (Long, ByteArray, Int, Int) -> Unit
+
 /** How this player handles a Dolby Vision profile 7 stream. */
 enum class DoviCompatMode(val wireValue: String) {
     /** The device decodes profile 7 itself, leave the stream alone. */
@@ -104,6 +107,7 @@ class DoviCompatExtractorsFactory(
     private val mode: () -> DoviCompatMode,
     private val convertNal62: (ByteArray, Int, Int) -> ByteArray?,
     private val onReport: (DoviCompatReport) -> Unit,
+    private val p5RpuSinkProvider: () -> DoviP5RpuSink? = { null },
 ) : ForwardingExtractorsFactory(delegate) {
 
     // The base class returns the inner factory from its setters, which would
@@ -143,7 +147,7 @@ class DoviCompatExtractorsFactory(
 
     private fun wrap(extractors: Array<Extractor>): Array<Extractor> =
         Array(extractors.size) { index ->
-            DoviCompatExtractor(extractors[index], mode, convertNal62, onReport)
+            DoviCompatExtractor(extractors[index], mode, convertNal62, onReport, p5RpuSinkProvider)
         }
 }
 
@@ -153,12 +157,14 @@ private class DoviCompatExtractor(
     private val mode: () -> DoviCompatMode,
     private val convertNal62: (ByteArray, Int, Int) -> ByteArray?,
     private val onReport: (DoviCompatReport) -> Unit,
+    private val p5RpuSinkProvider: () -> DoviP5RpuSink?,
 ) : ForwardingExtractor(delegate) {
 
     private var output: DoviCompatExtractorOutput? = null
 
     override fun init(output: ExtractorOutput) {
-        val wrapped = DoviCompatExtractorOutput(output, mode, convertNal62, onReport)
+        val wrapped =
+            DoviCompatExtractorOutput(output, mode, convertNal62, onReport, p5RpuSinkProvider)
         this.output = wrapped
         (delegate as? MoonfinMatroskaExtractor)?.doviBlockAdditionalListener =
             wrapped::onDoviBlockAdditional
@@ -177,6 +183,7 @@ private class DoviCompatExtractorOutput(
     private val mode: () -> DoviCompatMode,
     private val convertNal62: (ByteArray, Int, Int) -> ByteArray?,
     private val onReport: (DoviCompatReport) -> Unit,
+    private val p5RpuSinkProvider: () -> DoviP5RpuSink?,
 ) : ForwardingExtractorOutput(delegate) {
 
     private val videoTracks = HashMap<Int, DoviCompatTrackOutput>()
@@ -187,7 +194,7 @@ private class DoviCompatExtractorOutput(
             return inner
         }
         return videoTracks.getOrPut(id) {
-            DoviCompatTrackOutput(inner, mode, convertNal62, onReport)
+            DoviCompatTrackOutput(inner, mode, convertNal62, onReport, p5RpuSinkProvider)
         }
     }
 
@@ -229,6 +236,7 @@ private class DoviCompatTrackOutput(
     private val mode: () -> DoviCompatMode,
     private val convertNal62: (ByteArray, Int, Int) -> ByteArray?,
     private val onReport: (DoviCompatReport) -> Unit,
+    private val p5RpuSinkProvider: () -> DoviP5RpuSink?,
 ) : ForwardingTrackOutput(delegate) {
 
     private var active = false
@@ -239,6 +247,9 @@ private class DoviCompatTrackOutput(
     private var sourceFormat: Format? = null
     private var convertBroken = false
     private var wroteRpu = false
+    private var askedForP5Sink = false
+    private var p5RpuSink: DoviP5RpuSink? = null
+    private var sampleTimeUs = 0L
 
     private var reportedConverterFailure = false
     private var reportedUntouched = false
@@ -322,6 +333,25 @@ private class DoviCompatTrackOutput(
         val requestedMode = mode()
         val isP7 = codecs != null &&
             (codecs.startsWith("dvhe.07") || codecs.startsWith("dvh1.07"))
+        // A profile 5 track on a device that reshapes it plays as plain HEVC,
+        // with its RPUs handed to the renderer instead of the decoder. Asking
+        // happens here, before the format goes out, because the renderer has to
+        // own the output surface by the time the decoder is configured.
+        val isP5 = codecs != null &&
+            (codecs.startsWith("dvhe.05") || codecs.startsWith("dvh1.05"))
+        if (isP5 && !disarmed && !askedForP5Sink) {
+            askedForP5Sink = true
+            p5RpuSink = p5RpuSinkProvider()
+        }
+        if (isP5 && !disarmed && p5RpuSink != null) {
+            active = true
+            requested = DoviCompatMode.STRIP
+            sourceFormat = format
+            if (formatDecided) {
+                emitDecidedFormat()
+            }
+            return
+        }
         val shouldIntercept = !disarmed && isP7 &&
             (requestedMode == DoviCompatMode.CONVERT || requestedMode == DoviCompatMode.STRIP)
 
@@ -373,6 +403,9 @@ private class DoviCompatTrackOutput(
                 format.buildUpon()
                     .setSampleMimeType(MimeTypes.VIDEO_H265)
                     .setCodecs(null)
+                    .apply {
+                        if (p5RpuSink != null) setColorInfo(DoviP5Renderer.decoderColorInfo)
+                    }
                     .build()
             else -> format
         }
@@ -527,6 +560,7 @@ private class DoviCompatTrackOutput(
             dataEnd = dataStart + declared
         }
 
+        sampleTimeUs = timeUs
         var filteredLength = filterSample(pending, dataStart, dataEnd)
 
         // A dual layer MKV carries its RPU in a block addition rather than in
@@ -698,6 +732,9 @@ private class DoviCompatTrackOutput(
             val nalType = (data[payloadStart].toInt() shr 1) and 0x3F
             nalCounts[nalType]++
             if (nalType == NAL_UNSPEC62) rpusSeen++
+            if (nalType == NAL_UNSPEC62) {
+                p5RpuSink?.invoke(sampleTimeUs, data, payloadStart, unitEnd - payloadStart)
+            }
             val mode = effectiveMode
             when {
                 nalType == NAL_UNSPEC63 -> enhancementUnitsDropped++

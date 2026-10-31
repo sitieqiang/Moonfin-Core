@@ -50,7 +50,18 @@ object DoviRpu {
         return runCatching { nativeConvert(data, offset, length) }.getOrNull()
     }
 
+    /**
+     * Reads what the profile 5 shader needs out of one unspec62 NAL unit into
+     * [out]. See nativeP5Mapping in dovi_jni.c for the layout.
+     */
+    fun p5Mapping(nal: ByteArray, out: FloatArray): Int {
+        if (!isAvailable()) return -1
+        return runCatching { nativeP5Mapping(nal, out) }.getOrDefault(-1)
+    }
+
     private external fun nativeStatus(): Int
+
+    private external fun nativeP5Mapping(data: ByteArray, out: FloatArray): Int
 
     private external fun nativeConvert(data: ByteArray, offset: Int, length: Int): ByteArray?
 }

@@ -21,7 +21,8 @@ class KnownDefects {
   // picture and RPU to a Dolby Vision display and never maps them itself. On
   // any other display a stream without an HDR10 base layer renders green and
   // purple. Emby's transcoder bakes the same colors in, so transcoding doesn't
-  // rescue these streams either.
+  // rescue these streams either. The Media3 backend reshapes them itself, see
+  // [media3ReshapesDolbyVisionProfile5].
   static const Set<String> modelsWithDolbyVisionDisplayOnlyDecoder = <String>{
     'SHIELD ANDROID TV',
   };
@@ -38,6 +39,18 @@ class KnownDefects {
     return modelsWithDolbyVisionDisplayOnlyDecoder.contains(
       model.trim().toUpperCase(),
     );
+  }
+
+  /// Whether [engine] draws Dolby Vision profile 5 itself on this device, so
+  /// it comes out right with no Dolby Vision display. Only Media3 does, since
+  /// mpv never gets the RPU from a hardware decoder and can't software decode
+  /// 4K on these devices.
+  static bool media3ReshapesDolbyVisionProfile5(
+    PlaybackEnginePreference engine,
+  ) {
+    return engine == PlaybackEnginePreference.media3 &&
+        dolbyVisionDecoderNeedsDolbyVisionDisplay &&
+        !PlatformDetection.supportsDolbyVision;
   }
 
   static bool get hevcDoviHdr10PlusBug =>

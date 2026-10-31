@@ -10382,6 +10382,11 @@ Future<bool> shouldForceTranscodeForDolbyVisionQueue(
   }
 
   if (dvAnalysis.needsDolbyVisionDisplay) {
+    if (KnownDefects.media3ReshapesDolbyVisionProfile5(
+      prefs.get(UserPreferences.playbackEnginePreference),
+    )) {
+      return false;
+    }
     if (!context.mounted) return false;
     if (!await _showDolbyVisionCannotDisplayDialog(context)) {
       throw PlaybackStartupRecoveryAbortedException();

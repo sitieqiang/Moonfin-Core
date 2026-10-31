@@ -1082,6 +1082,9 @@ class Media3PlayerBackend extends PlayerBackend
       'preferFfmpeg': _prefs.get(UserPreferences.preferExoPlayerFfmpeg),
       'tunnelingDisabled': _sessionTunnelingDisabled,
       'doviCompatMode': doviMode.name,
+      'doviP5Reshape': KnownDefects.media3ReshapesDolbyVisionProfile5(
+        _prefs.get(UserPreferences.playbackEnginePreference),
+      ),
       'allowExternalAudioEffects': _prefs.get(
         UserPreferences.media3AllowExternalAudioEffects,
       ),

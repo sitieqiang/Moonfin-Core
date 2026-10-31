@@ -11,6 +11,7 @@ import 'package:moonfin/data/database/offline_database.dart';
 import 'package:moonfin/data/models/aggregated_item.dart';
 import 'package:moonfin/data/repositories/offline_repository.dart';
 import 'package:moonfin/l10n/app_localizations.dart';
+import 'package:moonfin/preference/preference_constants.dart';
 import 'package:moonfin/preference/user_preferences.dart';
 import 'package:moonfin/ui/screens/detail/item_detail_screen.dart';
 import 'package:moonfin/util/platform_detection.dart';
@@ -189,10 +190,34 @@ void main() {
       return tester.element(find.byType(Scaffold));
     }
 
-    testWidgets('playing anyway direct plays instead of transcoding', (
+    testWidgets('Media3 plays it without asking, since it reshapes it', (
       tester,
     ) async {
       setUpShield();
+      await prefs.set(
+        UserPreferences.playbackEnginePreference,
+        PlaybackEnginePreference.media3,
+      );
+      final context = await mountLocalized(tester);
+
+      final forceTranscode = await shouldForceTranscodeForDolbyVisionQueue(
+        context,
+        [dvItem()],
+      );
+
+      expect(forceTranscode, isFalse);
+      expect(find.byType(AlertDialog), findsNothing);
+      tearDownShield();
+    });
+
+    testWidgets('playing anyway on mpv direct plays instead of transcoding', (
+      tester,
+    ) async {
+      setUpShield();
+      await prefs.set(
+        UserPreferences.playbackEnginePreference,
+        PlaybackEnginePreference.mpv,
+      );
       final context = await mountLocalized(tester);
       final l10n = AppLocalizations.of(context);
 
@@ -213,8 +238,12 @@ void main() {
       tearDownShield();
     });
 
-    testWidgets('cancelling aborts the start', (tester) async {
+    testWidgets('cancelling on mpv aborts the start', (tester) async {
       setUpShield();
+      await prefs.set(
+        UserPreferences.playbackEnginePreference,
+        PlaybackEnginePreference.mpv,
+      );
       final context = await mountLocalized(tester);
       final l10n = AppLocalizations.of(context);
 
